@@ -9,7 +9,8 @@ info = {
 }
 userAgnet = 'Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36';
 headers = {
-  'User-Agent': userAgnet
+  'User-Agent': userAgnet,
+  'Connection': 'keep-alive'
 };
 
 def init():
@@ -82,8 +83,6 @@ def selectClass():
       parseResult = urlparse.urlparse(item['url']);
       queryResult = urlparse.parse_qs(parseResult.query)
 
-      print queryResult
-
       courseId = queryResult[u'courseId'][0];
       knowledgeId = queryResult[u'chapterId'][0];
       clazzId = queryResult[u'clazzid'][0];
@@ -91,31 +90,38 @@ def selectClass():
       print courseId, knowledgeId, clazzId
 
       cardRequest = session.get('https://mooc1-1.chaoxing.com/knowledge/cards?clazzid=' + clazzId + '&courseid=' + courseId + '&knowledgeid=' + knowledgeId + '&num=0&v=20160407-1', headers=headers);
-      matchObj = re.findall(r'try{\n\s+mArg\s=\s(.*)\n}catch\(e\){\n}' ,cardRequest.content)[0][0: -1];
+      matchObjTmp = re.findall(r'try{\n\s+mArg\s=\s(.*);\n}catch\(e\){\n}' ,cardRequest.content)
       
-      jsonObj = json.loads(matchObj);
+      print matchObjTmp
+      if len(matchObjTmp) > 0:
+        matchObj = matchObjTmp[0];
 
-      defaults = jsonObj['defaults'];
+        jsonObj = json.loads(matchObj);
 
-      print defaults;
+        defaults = jsonObj['defaults'];
 
-      info['current']['reportTimeInterval'] = defaults['reportTimeInterval'];
+        info['current']['reportTimeInterval'] = defaults['reportTimeInterval'];
 
-      attachments = jsonObj['attachments'][0];
-      if attachments.has_key('isPassed'):
-        isPassed = attachments['isPassed']
-      
-      if isPassed is not True :
-        info['currentSelectCourse'] = attachments;
+        attachmentsTmp = jsonObj['attachments'];
 
-        info['current']['courseId'] = courseId;
-        info['current']['knowledgeId'] = knowledgeId;
-        info['current']['clazzId'] = clazzId;
+        if len(attachmentsTmp) > 0:
+          attachments = attachmentsTmp[0];
+          if attachments.has_key('isPassed'):
+            isPassed = attachments['isPassed'];
+        else:
+          isPassed = True;
+        
+        if isPassed is not True :
+          info['currentSelectCourse'] = attachments;
 
-        print item['title'], 'is not Passed'
-        return;
-      else:
-        print item['title'], 'is Passed'
+          info['current']['courseId'] = courseId;
+          info['current']['knowledgeId'] = knowledgeId;
+          info['current']['clazzId'] = clazzId;
+
+          print item['title'], 'is not Passed'
+          return;
+        else:
+          print item['title'], 'is Passed'
 
 def makeEnc(clazzId, userid, jobid, objectid, playtime, duration, cliptime):
   salt = 'd_yHJ!$pdA~5';
@@ -163,9 +169,18 @@ def sendHeartBeat():
     'dtype': type
   }
 
+  heartData = {
+    'version': str(int(startTime * 1000)),
+    'refer': 'http://i.mooc.chaoxing.com',
+    'jsoncallback': 'jsonp',
+    't': str(int(time.time() * 1000))
+  }
+
+  heartResp = session.get('https://passport2.chaoxing.com/api/monitor', params=heartData, headers=headers)
+
   logResp = session.get('https://mooc1-1.chaoxing.com/multimedia/log/' + dtoken, params=params, headers=headers);
 
-  print logResp.content
+  print heartResp, logResp.content
 
   return diff < duration
 
@@ -174,7 +189,8 @@ def processCourse():
     info['current']['timer'] = threading.Timer(info['current']['reportTimeInterval'], processCourse);
     info['current']['timer'].start();
   else:
-    selectClass()
+    selectClass();
+    classBegin();
 
 def classBegin():
   global info, headers, session;
@@ -216,6 +232,8 @@ def classBegin():
 
   info['current']['duration'] = jsonObj['duration'];
   info['current']['dtoken'] = jsonObj['dtoken'];
+
+  print jsonObj;
 
   info['current']['startTime'] = time.time();
   processCourse();
